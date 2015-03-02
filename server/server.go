@@ -5,9 +5,12 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/bradfitz/http2"
 	"github.com/joshuarubin/grpc-helloworld-go/pb"
+	"github.com/julienschmidt/httprouter"
+	"github.com/stretchr/graceful"
 	"github.com/zvelo/zvelo-services/util"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -28,7 +31,7 @@ func (s *rpcServer) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.Hell
 	return hello(in.Name), nil
 }
 
-func helloHandler(w http.ResponseWriter, req *http.Request) {
+func helloHandler(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 	util.Render(w, req, http.StatusOK, hello(req.FormValue("name")))
 }
 
@@ -47,19 +50,22 @@ func startRPC() {
 }
 
 func startHTTP() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/hello", helloHandler)
-	mux.HandleFunc("/hello.pb", helloHandler)
-	mux.HandleFunc("/hello.json", helloHandler)
+	mux := httprouter.New()
+	mux.GET("/hello", helloHandler)
+	mux.GET("/hello.pb", helloHandler)
+	mux.GET("/hello.json", helloHandler)
+
+	addr := fmt.Sprintf(":%d", httpPort)
 
 	s := &http.Server{
-		Addr:    fmt.Sprintf(":%d", httpPort),
+		Addr:    addr,
 		Handler: mux,
 	}
 
 	http2.ConfigureServer(s, nil)
+	graceful.ListenAndServe(s, 3*time.Minute)
 
-	log.Printf("http listening at %s\n", s.Addr)
+	log.Printf("http listening at %s\n", addr)
 	log.Fatal(s.ListenAndServe())
 }
 
