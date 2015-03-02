@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/bradfitz/http2"
 	"github.com/joshuarubin/grpc-helloworld-go/pb"
 	"github.com/zvelo/zvelo-services/util"
 	"golang.org/x/net/context"
@@ -40,17 +41,26 @@ func startRPC() {
 
 	s := grpc.NewServer()
 	pb.RegisterGreeterServer(s, &rpcServer{})
+
 	log.Printf("rpc listening at %s\n", addr)
 	log.Fatal(s.Serve(ln))
 }
 
 func startHTTP() {
-	addr := fmt.Sprintf(":%d", httpPort)
-	http.HandleFunc("/hello", helloHandler)
-	http.HandleFunc("/hello.pb", helloHandler)
-	http.HandleFunc("/hello.json", helloHandler)
-	log.Printf("http listening at %s\n", addr)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/hello", helloHandler)
+	mux.HandleFunc("/hello.pb", helloHandler)
+	mux.HandleFunc("/hello.json", helloHandler)
+
+	s := &http.Server{
+		Addr:    fmt.Sprintf(":%d", httpPort),
+		Handler: mux,
+	}
+
+	http2.ConfigureServer(s, nil)
+
+	log.Printf("http listening at %s\n", s.Addr)
+	log.Fatal(s.ListenAndServe())
 }
 
 func main() {
