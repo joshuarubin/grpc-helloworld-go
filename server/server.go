@@ -35,21 +35,22 @@ func helloHandler(w http.ResponseWriter, req *http.Request, ps httprouter.Params
 	util.Render(w, req, http.StatusOK, hello(req.FormValue("name")))
 }
 
-func startRPC() {
+func startRPC(msgCh chan<- string, errCh chan<- error) {
 	addr := fmt.Sprintf(":%d", rpcPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatal(err)
+		errCh <- err
+		return
 	}
 
 	s := grpc.NewServer()
 	pb.RegisterGreeterServer(s, &rpcServer{})
 
-	log.Printf("rpc listening at %s\n", addr)
-	log.Fatal(s.Serve(ln))
+	msgCh <- fmt.Sprintf("rpc listening at %s", addr)
+	errCh <- s.Serve(ln)
 }
 
-func startHTTP() {
+func startHTTP(msgCh chan<- string, errCh chan<- error) {
 	mux := httprouter.New()
 	mux.GET("/hello", helloHandler)
 	mux.GET("/hello.pb", helloHandler)
@@ -63,13 +64,24 @@ func startHTTP() {
 	}
 
 	http2.ConfigureServer(s, nil)
-	graceful.ListenAndServe(s, 3*time.Minute)
 
-	log.Printf("http listening at %s\n", addr)
-	log.Fatal(s.ListenAndServe())
+	msgCh <- fmt.Sprintf("http listening at %s", addr)
+	errCh <- graceful.ListenAndServe(s, 3*time.Minute)
 }
 
 func main() {
-	go startRPC()
-	startHTTP()
+	msgCh := make(chan string)
+	errCh := make(chan error)
+
+	go startHTTP(msgCh, errCh)
+	go startRPC(msgCh, errCh)
+
+	for {
+		select {
+		case err := <-errCh:
+			log.Fatal(err)
+		case msg := <-msgCh:
+			log.Println(msg)
+		}
+	}
 }
